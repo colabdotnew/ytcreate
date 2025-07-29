@@ -13,6 +13,11 @@ document.addEventListener('DOMContentLoaded', () => {
     const mediaElements = {}; // { clipId: { element, type } }
     let animationFrameId;
     let lastFrameTime;
+    let isResizing = false;
+    let clipToResize = null;
+    let isDraggingClip = false;
+    let draggedClipInfo = null;
+
 
     // --- DOM Element References ---
     const fileInput = document.getElementById('file-input');
@@ -32,6 +37,9 @@ document.addEventListener('DOMContentLoaded', () => {
     const notification = document.getElementById('notification');
     const notificationMessage = document.getElementById('notification-message');
     const notificationClose = document.getElementById('notification-close');
+    const previewModal = document.getElementById('preview-modal');
+    const previewModalContent = document.getElementById('preview-modal-content');
+    const previewModalClose = document.getElementById('preview-modal-close');
 
     // --- Helper Functions ---
     const formatTime = (time) => {
@@ -52,20 +60,26 @@ document.addEventListener('DOMContentLoaded', () => {
         mediaPoolList.innerHTML = '';
         mediaPool.forEach(media => {
             const div = document.createElement('div');
-            div.className = 'flex items-center bg-gray-700 p-2 rounded-md';
+            div.className = 'flex items-center bg-gray-700 p-2 rounded-md cursor-grab';
+            div.draggable = true;
+            div.dataset.mediaId = media.id;
+
             let iconType = 'file';
             if (media.type.startsWith('video')) iconType = 'video';
             if (media.type.startsWith('image')) iconType = 'image';
             if (media.type.startsWith('audio')) iconType = 'music';
             
             div.innerHTML = `
-                <i data-lucide="${iconType}" class="w-5 h-5 mr-2 ${
+                <i data-lucide="${iconType}" class="w-5 h-5 mr-2 pointer-events-none ${
                     iconType === 'video' ? 'text-blue-400' : 
                     iconType === 'image' ? 'text-green-400' : 
                     iconType === 'audio' ? 'text-purple-400' : ''
                 }"></i>
-                <span class="text-sm text-gray-200 truncate flex-grow">${media.name}</span>
-                <button data-media-id="${media.id}" class="add-to-timeline ml-2 p-1 bg-green-600 rounded-md hover:bg-green-700">
+                <span class="text-sm text-gray-200 truncate flex-grow pointer-events-none">${media.name}</span>
+                <button data-media-id="${media.id}" class="preview-media ml-2 p-1 bg-gray-600 rounded-md hover:bg-gray-500" title="Preview Media">
+                    <i data-lucide="play" class="w-4 h-4 text-white"></i>
+                </button>
+                <button data-media-id="${media.id}" class="add-to-timeline ml-2 p-1 bg-green-600 rounded-md hover:bg-green-700" title="Add to Timeline at Playhead">
                     <i data-lucide="plus" class="w-4 h-4 text-white"></i>
                 </button>
             `;
@@ -75,11 +89,11 @@ document.addEventListener('DOMContentLoaded', () => {
     };
 
     const renderTimeline = () => {
-        // Clear existing clips
         videoTrack.querySelectorAll('.clip').forEach(c => c.remove());
         audioTrack.querySelectorAll('.clip').forEach(c => c.remove());
 
-        timelineContent.style.width = `${duration * zoom}px`;
+        const totalDuration = Math.max(duration, ...timeline.video.map(c => c.start + c.duration), ...timeline.audio.map(c => c.start + c.duration));
+        timelineContent.style.width = `${totalDuration * zoom}px`;
 
         const createClipElement = (clip, trackType) => {
             const clipEl = document.createElement('div');
@@ -96,7 +110,7 @@ document.addEventListener('DOMContentLoaded', () => {
             clipEl.style.borderColor = (selectedClip && selectedClip.id === clip.id) ? '#facc15' : 'transparent';
 
             clipEl.innerHTML = `
-                <div class="text-white text-xs truncate px-2 py-1 h-full w-full flex items-center">${clip.name}</div>
+                <div class="text-white text-xs truncate px-2 py-1 h-full w-full flex items-center pointer-events-none">${clip.name}</div>
                 ${isImage ? `<div class="resize-handle absolute right-0 top-0 bottom-0 w-2 bg-yellow-400 cursor-ew-resize opacity-50 hover:opacity-100"></div>` : ''}
             `;
             return clipEl;
@@ -108,7 +122,8 @@ document.addEventListener('DOMContentLoaded', () => {
     };
     
     const updateTimeDisplay = () => {
-            timeDisplay.textContent = `${formatTime(currentTime)} / ${formatTime(duration)}`;
+        const totalDuration = Math.max(duration, ...timeline.video.map(c => c.start + c.duration), ...timeline.audio.map(c => c.start + c.duration));
+        timeDisplay.textContent = `${formatTime(currentTime)} / ${formatTime(totalDuration)}`;
     };
 
     const updatePlayheadPosition = () => {
@@ -116,7 +131,7 @@ document.addEventListener('DOMContentLoaded', () => {
     };
 
     // --- Core Logic ---
-    const update = (time) => {
+    const update = () => {
         if (!isPlaying) return;
         
         const now = performance.now();
@@ -125,8 +140,9 @@ document.addEventListener('DOMContentLoaded', () => {
         
         currentTime += deltaTime;
 
-        if (currentTime >= duration) {
-            currentTime = duration;
+        const totalDuration = Math.max(duration, ...timeline.video.map(c => c.start + c.duration), ...timeline.audio.map(c => c.start + c.duration));
+        if (currentTime >= totalDuration) {
+            currentTime = totalDuration;
             togglePlayPause();
         }
 
@@ -153,9 +169,7 @@ document.addEventListener('DOMContentLoaded', () => {
                     if (videoEl.readyState >= 2 && Math.abs(videoEl.currentTime - timeInClip) > 0.1) {
                         videoEl.currentTime = timeInClip;
                     }
-                     try {
-                        ctx.drawImage(videoEl, 0, 0, previewCanvas.width, previewCanvas.height);
-                    } catch (e) { /* ignore */ }
+                     try { ctx.drawImage(videoEl, 0, 0, previewCanvas.width, previewCanvas.height); } catch (e) { /* ignore */ }
                 } else if (activeVideoClip.mediaType.startsWith('image')) {
                     ctx.drawImage(media.element, 0, 0, previewCanvas.width, previewCanvas.height);
                 }
@@ -164,7 +178,7 @@ document.addEventListener('DOMContentLoaded', () => {
     };
 
     const syncAudio = () => {
-        Object.values(timeline.audio).forEach(clip => {
+        timeline.audio.forEach(clip => {
             const media = mediaElements[clip.id];
             if (media && media.element) {
                 const audio = media.element;
@@ -189,26 +203,27 @@ document.addEventListener('DOMContentLoaded', () => {
         lucide.createIcons();
 
         if (isPlaying) {
-            if (currentTime >= duration) currentTime = 0;
+            const totalDuration = Math.max(duration, ...timeline.video.map(c => c.start + c.duration), ...timeline.audio.map(c => c.start + c.duration));
+            if (currentTime >= totalDuration) currentTime = 0;
             lastFrameTime = performance.now();
             animationFrameId = requestAnimationFrame(update);
         } else {
             cancelAnimationFrame(animationFrameId);
             Object.values(mediaElements).forEach(media => {
-                if (media.type.startsWith('audio') && !media.element.paused) {
+                if (media.element.tagName === 'AUDIO' && !media.element.paused) {
                     media.element.pause();
                 }
             });
         }
     };
     
-    const addMediaToTimeline = (media) => {
+    const addMediaToTimeline = (media, startTime) => {
         const newClip = {
             id: `clip_${Date.now()}_${Math.random()}`,
             mediaId: media.id,
             name: media.name,
             mediaType: media.type,
-            start: currentTime,
+            start: startTime,
             duration: media.type.startsWith('image') ? 5 : 0,
             mediaStart: 0,
         };
@@ -220,22 +235,21 @@ document.addEventListener('DOMContentLoaded', () => {
 
         mediaElements[newClip.id] = { element, type: media.type };
 
-        element.addEventListener('loadedmetadata', () => {
+        const onMetadataLoaded = () => {
             if (!media.type.startsWith('image')) {
                 newClip.duration = element.duration;
-                duration = Math.max(duration, newClip.start + newClip.duration);
-                renderTimeline();
             }
-        });
-        
-        if (media.type.startsWith('image')) {
-            duration = Math.max(duration, newClip.start + newClip.duration);
-        }
+            const trackType = media.type.startsWith('video') || media.type.startsWith('image') ? 'video' : 'audio';
+            timeline[trackType].push(newClip);
+            timeline[trackType].sort((a,b) => a.start - b.start);
+            renderTimeline();
+        };
 
-        const trackType = media.type.startsWith('video') || media.type.startsWith('image') ? 'video' : 'audio';
-        timeline[trackType].push(newClip);
-        timeline[trackType].sort((a,b) => a.start - b.start);
-        renderTimeline();
+        if (media.type.startsWith('image')) {
+            element.onload = onMetadataLoaded;
+        } else {
+            element.onloadedmetadata = onMetadataLoaded;
+        }
     };
     
     const updateSelectedClip = (newSelectedClip) => {
@@ -260,37 +274,59 @@ document.addEventListener('DOMContentLoaded', () => {
     });
 
     mediaPoolList.addEventListener('click', (e) => {
-        const button = e.target.closest('.add-to-timeline');
-        if (button) {
-            const mediaId = button.dataset.mediaId;
+        const addButton = e.target.closest('.add-to-timeline');
+        const previewButton = e.target.closest('.preview-media');
+
+        if (addButton) {
+            const mediaId = addButton.dataset.mediaId;
             const media = mediaPool.find(m => m.id === mediaId);
-            if (media) addMediaToTimeline(media);
+            if (media) addMediaToTimeline(media, currentTime);
+        } else if (previewButton) {
+            const mediaId = previewButton.dataset.mediaId;
+            const media = mediaPool.find(m => m.id === mediaId);
+            if(media) {
+                previewModalContent.innerHTML = '';
+                let previewElement;
+                if (media.type.startsWith('video')) {
+                    previewElement = document.createElement('video');
+                    previewElement.src = media.url;
+                    previewElement.controls = true;
+                    previewElement.autoplay = true;
+                    previewElement.className = "max-w-full max-h-[80vh]";
+                } else if (media.type.startsWith('image')) {
+                    previewElement = document.createElement('img');
+                    previewElement.src = media.url;
+                    previewElement.className = "max-w-full max-h-[80vh] object-contain";
+                }
+                if (previewElement) {
+                    previewModalContent.appendChild(previewElement);
+                    previewModal.classList.remove('hidden');
+                    lucide.createIcons(); // Re-render icons if any in the modal
+                }
+            }
         }
+    });
+
+    previewModalClose.addEventListener('click', () => {
+        previewModal.classList.add('hidden');
+        previewModalContent.innerHTML = ''; // Crucial to stop video/audio playback
     });
 
     playPauseBtn.addEventListener('click', togglePlayPause);
     
     timelineContainer.addEventListener('click', (e) => {
-        if (e.target.closest('.clip')) return; // Ignore clicks on clips
+        if (e.target.closest('.clip')) return; 
         const rect = timelineContainer.getBoundingClientRect();
         const x = e.clientX - rect.left + timelineContainer.scrollLeft;
-        currentTime = Math.max(0, Math.min(duration, x / zoom));
+        const totalDuration = Math.max(duration, ...timeline.video.map(c => c.start + c.duration), ...timeline.audio.map(c => c.start + c.duration));
+        currentTime = Math.max(0, Math.min(totalDuration, x / zoom));
+        
         updateSelectedClip(null);
         updatePlayheadPosition();
         updateTimeDisplay();
-        drawPreviewFrame();
+        if(!isPlaying) drawPreviewFrame();
     });
     
-    timelineContent.addEventListener('click', (e) => {
-        const clipEl = e.target.closest('.clip');
-        if (clipEl) {
-            const clipId = clipEl.dataset.clipId;
-            const trackType = clipEl.dataset.trackType;
-            const clipData = timeline[trackType].find(c => c.id === clipId);
-            updateSelectedClip({ ...clipData, trackType });
-        }
-    });
-
     zoomSlider.addEventListener('input', (e) => {
         zoom = Number(e.target.value);
         renderTimeline();
@@ -309,13 +345,7 @@ document.addEventListener('DOMContentLoaded', () => {
         const originalClip = timeline[trackType].find(c => c.id === id);
         const splitTimeInClip = currentTime - originalClip.start;
 
-        const newClip = {
-            ...originalClip,
-            id: `clip_${Date.now()}_${Math.random()}`,
-            start: currentTime,
-            duration: originalClip.duration - splitTimeInClip,
-            mediaStart: originalClip.mediaStart + splitTimeInClip,
-        };
+        const newClip = { ...originalClip, id: `clip_${Date.now()}_${Math.random()}`, start: currentTime, duration: originalClip.duration - splitTimeInClip, mediaStart: originalClip.mediaStart + splitTimeInClip };
         originalClip.duration = splitTimeInClip;
 
         const originalMedia = mediaElements[originalClip.id];
@@ -339,37 +369,103 @@ document.addEventListener('DOMContentLoaded', () => {
         renderTimeline();
     });
     
-    // Image resize logic
-    let isResizing = false;
-    let clipToResize = null;
-    timelineContent.addEventListener('mousedown', (e) => {
-        if (e.target.classList.contains('resize-handle')) {
-            e.stopPropagation();
-            isResizing = true;
-            const clipEl = e.target.closest('.clip');
-            const clipId = clipEl.dataset.clipId;
-            clipToResize = timeline.video.find(c => c.id === clipId);
+    // --- Drag & Drop / Repositioning Event Listeners ---
+
+    // Drag from media pool
+    mediaPoolList.addEventListener('dragstart', (e) => {
+        if (e.target.dataset.mediaId) {
+            e.dataTransfer.setData('text/plain', e.target.dataset.mediaId);
+            e.target.classList.add('dragging');
         }
     });
 
+    mediaPoolList.addEventListener('dragend', (e) => {
+        if (e.target.dataset.mediaId) {
+            e.target.classList.remove('dragging');
+        }
+    });
+
+    timelineContainer.addEventListener('dragover', (e) => {
+        e.preventDefault();
+        timelineContainer.classList.add('drag-over');
+    });
+
+    timelineContainer.addEventListener('dragleave', (e) => {
+        timelineContainer.classList.remove('drag-over');
+    });
+
+    timelineContainer.addEventListener('drop', (e) => {
+        e.preventDefault();
+        timelineContainer.classList.remove('drag-over');
+        const mediaId = e.dataTransfer.getData('text/plain');
+        const media = mediaPool.find(m => m.id === mediaId);
+        if (media) {
+            const rect = timelineContainer.getBoundingClientRect();
+            const x = e.clientX - rect.left + timelineContainer.scrollLeft;
+            const dropTime = Math.max(0, x / zoom);
+            addMediaToTimeline(media, dropTime);
+        }
+    });
+
+    // Reposition and resize clips on the timeline
+    timelineContent.addEventListener('mousedown', (e) => {
+        const clipEl = e.target.closest('.clip');
+        if (!clipEl) return;
+
+        // Resize logic
+        if (e.target.classList.contains('resize-handle')) {
+            e.stopPropagation();
+            isResizing = true;
+            const clipId = clipEl.dataset.clipId;
+            clipToResize = timeline.video.find(c => c.id === clipId);
+            return;
+        }
+
+        // Reposition (drag) logic
+        e.stopPropagation();
+        isDraggingClip = true;
+        const clipId = clipEl.dataset.clipId;
+        const trackType = clipEl.dataset.trackType;
+        const clipData = timeline[trackType].find(c => c.id === clipId);
+        updateSelectedClip({ ...clipData, trackType });
+
+        const clipRect = clipEl.getBoundingClientRect();
+        const dragOffsetX = e.clientX - clipRect.left;
+        draggedClipInfo = { clip: clipData, trackType, dragOffsetX };
+    });
+
     window.addEventListener('mousemove', (e) => {
-        if (!isResizing || !clipToResize) return;
-        const rect = timelineContainer.getBoundingClientRect();
-        const x = e.clientX - rect.left + timelineContainer.scrollLeft;
-        const newWidth = x - (clipToResize.start * zoom);
-        let newDuration = newWidth / zoom;
-        if (newDuration < 0.5) newDuration = 0.5;
-        
-        clipToResize.duration = newDuration;
-        duration = Math.max(duration, ...timeline.video.map(c => c.start + c.duration), ...timeline.audio.map(c => c.start + c.duration));
-        renderTimeline();
+        if (isResizing && clipToResize) {
+            const rect = timelineContainer.getBoundingClientRect();
+            const x = e.clientX - rect.left + timelineContainer.scrollLeft;
+            const newWidth = x - (clipToResize.start * zoom);
+            let newDuration = newWidth / zoom;
+            if (newDuration < 0.5) newDuration = 0.5;
+            
+            clipToResize.duration = newDuration;
+            renderTimeline();
+        } else if (isDraggingClip && draggedClipInfo) {
+            const rect = timelineContainer.getBoundingClientRect();
+            const xOnTimeline = e.clientX - rect.left + timelineContainer.scrollLeft;
+            const offsetInPixels = draggedClipInfo.dragOffsetX;
+            
+            const newStartInPixels = xOnTimeline - offsetInPixels;
+            const newStartTime = Math.max(0, newStartInPixels / zoom);
+
+            draggedClipInfo.clip.start = newStartTime;
+            renderTimeline();
+        }
     });
 
     window.addEventListener('mouseup', () => {
+        if (isDraggingClip) {
+            timeline[draggedClipInfo.trackType].sort((a,b) => a.start - b.start);
+        }
         isResizing = false;
         clipToResize = null;
+        isDraggingClip = false;
+        draggedClipInfo = null;
     });
-
 
     // --- Initial Render ---
     renderTimeline();
