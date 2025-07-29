@@ -1,425 +1,119 @@
-import React, { useState, useRef, useEffect, useCallback } from 'react';
-import { Play, Pause, Scissors, Plus, Trash2, Image as ImageIcon, Video as VideoIcon, Music as MusicIcon } from 'lucide-react';
-
-// -- Helper Functions --
-const formatTime = (time) => {
-    const minutes = Math.floor(time / 60);
-    const seconds = Math.floor(time % 60);
-    const milliseconds = Math.floor((time % 1) * 1000);
-    return `${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}.${milliseconds.toString().padStart(3, '0')}`;
-};
-
-const getFileIcon = (type) => {
-    if (type.startsWith('video')) return <VideoIcon className="w-5 h-5 mr-2 text-blue-400" />;
-    if (type.startsWith('image')) return <ImageIcon className="w-5 h-5 mr-2 text-green-400" />;
-    if (type.startsWith('audio')) return <MusicIcon className="w-5 h-5 mr-2 text-purple-400" />;
-    return null;
-};
-
-
-// -- Main App Component --
-export default function App() {
-    // -- State Management --
-    const [mediaPool, setMediaPool] = useState([]);
-    const [timeline, setTimeline] = useState({
-        video: [],
-        audio: [],
-    });
-    const [isPlaying, setIsPlaying] = useState(false);
-    const [currentTime, setCurrentTime] = useState(0);
-    const [duration, setDuration] = useState(30); // Default duration of 30s
-    const [selectedClip, setSelectedClip] = useState(null);
-    const [zoom, setZoom] = useState(50); // pixels per second
-
-    // -- Refs for media elements and timeline --
-    const previewRef = useRef(null);
-    const timelineContainerRef = useRef(null);
-    const mediaElementsRef = useRef({}); // { clipId: { element, type } }
-    const animationFrameRef = useRef();
-
-    // -- Core Playback Logic --
-    const updatePlayback = useCallback(() => {
-        if (!isPlaying) return;
-
-        const now = performance.now();
-        const lastTime = animationFrameRef.current.lastTime || now;
-        const deltaTime = (now - lastTime) / 1000;
-        animationFrameRef.current.lastTime = now;
-
-        const newTime = currentTime + deltaTime;
-
-        if (newTime >= duration) {
-            setCurrentTime(duration);
-            setIsPlaying(false);
-        } else {
-            setCurrentTime(newTime);
-        }
-
-        animationFrameRef.current.id = requestAnimationFrame(updatePlayback);
-    }, [isPlaying, currentTime, duration]);
-
-    useEffect(() => {
-        if (isPlaying) {
-            animationFrameRef.current = { id: null, lastTime: performance.now() };
-            animationFrameRef.current.id = requestAnimationFrame(updatePlayback);
-        } else {
-            cancelAnimationFrame(animationFrameRef.current?.id);
-        }
-        return () => cancelAnimationFrame(animationFrameRef.current?.id);
-    }, [isPlaying, updatePlayback]);
-
-    // -- Canvas Drawing Logic --
-    useEffect(() => {
-        const canvas = previewRef.current;
-        if (!canvas) return;
-        const ctx = canvas.getContext('2d');
-        ctx.clearRect(0, 0, canvas.width, canvas.height);
-        ctx.fillStyle = '#111827';
-        ctx.fillRect(0, 0, canvas.width, canvas.height);
-
-        const videoTrack = timeline.video;
-        const activeVideoClip = videoTrack.find(clip => currentTime >= clip.start && currentTime < clip.start + clip.duration);
-
-        if (activeVideoClip) {
-            const media = mediaElementsRef.current[activeVideoClip.id];
-            if (media && media.element) {
-                if (activeVideoClip.mediaType.startsWith('video')) {
-                    const videoElement = media.element;
-                    const timeInClip = currentTime - activeVideoClip.start + activeVideoClip.mediaStart;
-                    if (videoElement.readyState >= 2 && Math.abs(videoElement.currentTime - timeInClip) > 0.1) {
-                         videoElement.currentTime = timeInClip;
-                    }
-                    ctx.drawImage(videoElement, 0, 0, canvas.width, canvas.height);
-                } else if (activeVideoClip.mediaType.startsWith('image')) {
-                    ctx.drawImage(media.element, 0, 0, canvas.width, canvas.height);
-                }
-            }
-        } else {
-            ctx.fillStyle = '#111827';
-            ctx.fillRect(0, 0, canvas.width, canvas.height);
-        }
-
-    }, [currentTime, timeline.video]);
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Web Video Creator</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://unpkg.com/lucide@latest"></script>
     
-    // -- Audio Sync Logic --
-    useEffect(() => {
-        Object.values(timeline.audio).forEach(clip => {
-            const media = mediaElementsRef.current[clip.id];
-            if (media && media.element) {
-                const audio = media.element;
-                const timeInClip = currentTime - clip.start + clip.mediaStart;
-                const isClipActive = currentTime >= clip.start && currentTime < clip.start + clip.duration;
-
-                if (isPlaying && isClipActive) {
-                    if (audio.paused) audio.play();
-                    if (Math.abs(audio.currentTime - timeInClip) > 0.2) {
-                        audio.currentTime = timeInClip;
-                    }
-                } else {
-                    if (!audio.paused) audio.pause();
-                }
-            }
-        });
-    }, [currentTime, isPlaying, timeline.audio]);
-
-
-    // -- Handlers --
-    const handleFileChange = (e) => {
-        const files = Array.from(e.target.files);
-        const newMedia = files.map(file => ({
-            id: `media_${Date.now()}_${Math.random()}`,
-            name: file.name,
-            type: file.type,
-            url: URL.createObjectURL(file),
-            file: file,
-        }));
-        setMediaPool(prev => [...prev, ...newMedia]);
-    };
-
-    const addMediaToTimeline = (media) => {
-        const newClip = {
-            id: `clip_${Date.now()}_${Math.random()}`,
-            mediaId: media.id,
-            name: media.name,
-            mediaType: media.type,
-            start: currentTime,
-            duration: media.type.startsWith('image') ? 5 : 0, // Default 5s for images
-            mediaStart: 0,
-        };
-
-        const mediaElement = document.createElement(media.type.startsWith('video') ? 'video' : (media.type.startsWith('audio') ? 'audio' : 'img'));
-        mediaElement.src = media.url;
-        mediaElement.muted = media.type.startsWith('video'); // Mute video elements to avoid double audio
-        mediaElement.preload = 'auto';
-
-        mediaElementsRef.current[newClip.id] = { element: mediaElement, type: media.type };
-
-        mediaElement.addEventListener('loadedmetadata', () => {
-            if (!media.type.startsWith('image')) {
-                setTimeline(prev => {
-                    const trackType = media.type.startsWith('video') ? 'video' : 'audio';
-                    const updatedTrack = prev[trackType].map(c => c.id === newClip.id ? { ...c, duration: mediaElement.duration } : c);
-                    const newTotalDuration = Math.max(duration, newClip.start + mediaElement.duration);
-                    setDuration(newTotalDuration);
-                    return { ...prev, [trackType]: updatedTrack };
-                });
-            }
-        });
-        
-        if (media.type.startsWith('image')) {
-            const newTotalDuration = Math.max(duration, newClip.start + newClip.duration);
-            setDuration(newTotalDuration);
+    <style>
+        /* Custom styles for better look and feel */
+        body {
+            font-family: 'Inter', sans-serif;
+            overscroll-behavior: none;
         }
-
-        const trackType = media.type.startsWith('video') || media.type.startsWith('image') ? 'video' : 'audio';
-        setTimeline(prev => ({
-            ...prev,
-            [trackType]: [...prev[trackType], newClip].sort((a,b) => a.start - b.start)
-        }));
-    };
-
-    const handleSplitClip = () => {
-        if (!selectedClip || currentTime <= selectedClip.start || currentTime >= selectedClip.start + selectedClip.duration) {
-            alert("Please select a clip and move the playhead over it to split.");
-            return;
+        /* Custom scrollbar for timeline */
+        .timeline-container::-webkit-scrollbar {
+            height: 8px;
         }
-
-        const { id, trackType } = selectedClip;
-        const originalClip = timeline[trackType].find(c => c.id === id);
-
-        const splitTimeInClip = currentTime - originalClip.start;
-
-        // Create the second part of the split
-        const newClip = {
-            ...originalClip,
-            id: `clip_${Date.now()}_${Math.random()}`,
-            start: currentTime,
-            duration: originalClip.duration - splitTimeInClip,
-            mediaStart: originalClip.mediaStart + splitTimeInClip,
-        };
-        
-        // Update the original clip
-        const updatedOriginalClip = {
-            ...originalClip,
-            duration: splitTimeInClip,
-        };
-
-        // Create the new media element for the second part
-        const media = mediaElementsRef.current[originalClip.id];
-        const newMediaElement = document.createElement(media.type.startsWith('video') ? 'video' : 'audio');
-        newMediaElement.src = media.element.src;
-        newMediaElement.muted = media.type.startsWith('video');
-        newMediaElement.preload = 'auto';
-        mediaElementsRef.current[newClip.id] = { element: newMediaElement, type: media.type };
-
-        setTimeline(prev => {
-            const newTrack = prev[trackType]
-                .map(c => c.id === id ? updatedOriginalClip : c)
-                .concat(newClip)
-                .sort((a, b) => a.start - b.start);
-            return { ...prev, [trackType]: newTrack };
-        });
-        setSelectedClip(null);
-    };
-
-    const handleTimelineClick = (e) => {
-        const rect = timelineContainerRef.current.getBoundingClientRect();
-        const x = e.clientX - rect.left;
-        const newTime = (x / (duration * zoom)) * duration;
-        setCurrentTime(Math.max(0, Math.min(duration, newTime)));
-        setSelectedClip(null);
-    };
-
-    const handleClipClick = (e, clip, trackType) => {
-        e.stopPropagation();
-        setSelectedClip({ ...clip, trackType });
-    };
-    
-    const handleClipDelete = () => {
-        if (!selectedClip) return;
-        const { id, trackType } = selectedClip;
-        
-        // Remove media element reference
-        delete mediaElementsRef.current[id];
-        
-        setTimeline(prev => ({
-            ...prev,
-            [trackType]: prev[trackType].filter(c => c.id !== id)
-        }));
-        setSelectedClip(null);
-    };
-
-    const handleImageResize = (clipId, newDuration) => {
-        if (newDuration < 0.5) newDuration = 0.5; // Minimum duration
-        setTimeline(prev => ({
-            ...prev,
-            video: prev.video.map(c => c.id === clipId ? { ...c, duration: newDuration } : c)
-        }));
-        const clip = timeline.video.find(c => c.id === clipId);
-        if(clip) {
-            const newTotalDuration = Math.max(duration, clip.start + newDuration);
-            setDuration(newTotalDuration);
+        .timeline-container::-webkit-scrollbar-track {
+            background: #1f2937;
         }
-    };
-    
-    // -- UI Components --
-    const MediaPoolPanel = () => (
-        <div className="bg-gray-800 p-4 rounded-lg overflow-y-auto">
-            <h3 className="text-lg font-bold mb-4 text-white">Media Pool</h3>
-            <label className="w-full flex items-center justify-center px-4 py-2 bg-blue-600 text-white rounded-lg cursor-pointer hover:bg-blue-700 transition-colors">
-                <Plus className="w-5 h-5 mr-2" />
-                Add Media
-                <input type="file" multiple onChange={handleFileChange} className="hidden" accept="video/*,image/*,audio/*" />
-            </label>
-            <div className="mt-4 space-y-2">
-                {mediaPool.map(media => (
-                    <div key={media.id} className="flex items-center bg-gray-700 p-2 rounded-md">
-                        {getFileIcon(media.type)}
-                        <span className="text-sm text-gray-200 truncate flex-grow">{media.name}</span>
-                        <button onClick={() => addMediaToTimeline(media)} className="ml-2 p-1 bg-green-600 rounded-md hover:bg-green-700">
-                            <Plus className="w-4 h-4 text-white" />
-                        </button>
-                    </div>
-                ))}
+        .timeline-container::-webkit-scrollbar-thumb {
+            background: #4b5563;
+            border-radius: 4px;
+        }
+        .timeline-container::-webkit-scrollbar-thumb:hover {
+            background: #6b7280;
+        }
+        /* Hide file input */
+        input[type="file"] {
+            display: none;
+        }
+    </style>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;700&display=swap" rel="stylesheet">
+</head>
+<body class="bg-gray-900 text-white h-screen w-screen flex flex-col p-4 font-sans overflow-hidden">
+
+    <div id="notification" class="hidden absolute top-5 left-1/2 -translate-x-1/2 bg-red-500 text-white px-6 py-3 rounded-lg shadow-lg z-50 flex items-center">
+        <span id="notification-message"></span>
+        <button id="notification-close" class="ml-4 p-1 rounded-full hover:bg-red-600">
+            <i data-lucide="x" class="w-5 h-5"></i>
+        </button>
+    </div>
+
+    <header class="mb-4 flex-shrink-0">
+        <h1 class="text-2xl font-bold text-center">Web Video Creator</h1>
+    </header>
+
+    <div class="flex flex-grow min-h-0">
+        <div class="w-2/3 flex flex-col pr-4">
+            <div class="bg-black rounded-lg aspect-video w-full flex items-center justify-center flex-shrink-0">
+                <canvas id="preview-canvas" width="1280" height="720" class="w-full h-full rounded-lg"></canvas>
+            </div>
+            <div class="bg-gray-800 p-2 mt-4 rounded-lg flex items-center justify-center space-x-6 flex-shrink-0">
+                <button id="play-pause-btn" class="p-2 bg-blue-600 rounded-full hover:bg-blue-700 transition-colors">
+                    <i data-lucide="play" class="w-6 h-6"></i>
+                </button>
+                <div id="time-display" class="text-lg font-mono">00:00.000 / 00:30.000</div>
             </div>
         </div>
-    );
 
-    const TimelinePanel = () => {
-        const timelineWidth = duration * zoom;
-    
-        return (
-            <div className="bg-gray-800 p-4 rounded-lg mt-4 flex-grow flex flex-col overflow-hidden">
-                <div className="flex items-center justify-between mb-2">
-                    <h3 className="text-lg font-bold text-white">Timeline</h3>
-                    <div className="flex items-center space-x-4">
-                        <button onClick={handleSplitClip} disabled={!selectedClip} className="flex items-center px-3 py-1 bg-yellow-500 text-white rounded-md disabled:bg-gray-600 disabled:cursor-not-allowed hover:bg-yellow-600 transition-colors">
-                            <Scissors className="w-4 h-4 mr-2" />
-                            Split
-                        </button>
-                         <button onClick={handleClipDelete} disabled={!selectedClip} className="flex items-center px-3 py-1 bg-red-600 text-white rounded-md disabled:bg-gray-600 disabled:cursor-not-allowed hover:bg-red-700 transition-colors">
-                            <Trash2 className="w-4 h-4 mr-2" />
-                            Delete
-                        </button>
-                        <div className="flex items-center">
-                            <span className="text-sm text-gray-300 mr-2">Zoom:</span>
-                            <input type="range" min="10" max="200" value={zoom} onChange={(e) => setZoom(Number(e.target.value))} className="w-32" />
-                        </div>
+        <div class="w-1/3 flex flex-col min-w-[300px]">
+            <div class="bg-gray-800 p-4 rounded-lg overflow-y-auto h-full">
+                <h3 class="text-lg font-bold mb-4 text-white">Media Pool</h3>
+                <label class="w-full flex items-center justify-center px-4 py-2 bg-blue-600 text-white rounded-lg cursor-pointer hover:bg-blue-700 transition-colors">
+                    <i data-lucide="plus" class="w-5 h-5 mr-2"></i>
+                    Add Media
+                    <input type="file" id="file-input" multiple accept="video/*,image/*,audio/*" />
+                </label>
+                <div id="media-pool-list" class="mt-4 space-y-2">
                     </div>
-                </div>
-                <div ref={timelineContainerRef} onClick={handleTimelineClick} className="w-full h-full bg-gray-900 rounded-md overflow-x-auto relative cursor-pointer">
-                    <div className="relative" style={{ width: `${timelineWidth}px`, height: '100%' }}>
-                        {/* Playhead */}
-                        <div className="absolute top-0 bottom-0 bg-red-500 w-0.5 z-20" style={{ left: `${(currentTime / duration) * 100}%` }}>
-                           <div className="absolute -top-2 -left-2 w-4 h-4 bg-red-500 rounded-full"></div>
-                        </div>
-                        
-                        {/* Tracks */}
-                        <div className="h-full w-full flex flex-col">
-                            {/* Video Track */}
-                            <div className="relative flex-1 border-b border-gray-700">
-                                <div className="absolute top-2 left-2 text-xs text-gray-400 bg-gray-800 px-2 py-1 rounded z-10">V1</div>
-                                {timeline.video.map(clip => <Clip key={clip.id} clip={clip} trackType="video" zoom={zoom} onClipClick={handleClipClick} selectedClip={selectedClip} onImageResize={handleImageResize} />)}
-                            </div>
-                            {/* Audio Track */}
-                            <div className="relative flex-1">
-                                 <div className="absolute top-2 left-2 text-xs text-gray-400 bg-gray-800 px-2 py-1 rounded z-10">A1</div>
-                                {timeline.audio.map(clip => <Clip key={clip.id} clip={clip} trackType="audio" zoom={zoom} onClipClick={handleClipClick} selectedClip={selectedClip} />)}
-                            </div>
-                        </div>
-                    </div>
-                </div>
-            </div>
-        );
-    };
-    
-    const Clip = ({ clip, trackType, zoom, onClipClick, selectedClip, onImageResize }) => {
-        const [isResizing, setIsResizing] = useState(false);
-        const clipRef = useRef(null);
-
-        const handleResizeMouseDown = (e) => {
-            e.stopPropagation();
-            setIsResizing(true);
-        };
-
-        useEffect(() => {
-            const handleMouseMove = (e) => {
-                if (!isResizing) return;
-                const timelineRect = timelineContainerRef.current.getBoundingClientRect();
-                const newWidth = e.clientX - timelineRect.left - (clip.start * zoom);
-                const newDuration = newWidth / zoom;
-                onImageResize(clip.id, newDuration);
-            };
-
-            const handleMouseUp = () => {
-                setIsResizing(false);
-            };
-            
-            if (isResizing) {
-                window.addEventListener('mousemove', handleMouseMove);
-                window.addEventListener('mouseup', handleMouseUp);
-            }
-
-            return () => {
-                window.removeEventListener('mousemove', handleMouseMove);
-                window.removeEventListener('mouseup', handleMouseUp);
-            };
-        }, [isResizing, clip.id, clip.start, onImageResize, zoom]);
-
-        const isSelected = selectedClip && selectedClip.id === clip.id;
-        const isImage = clip.mediaType.startsWith('image');
-        const bgColor = isImage ? 'bg-green-700' : (trackType === 'video' ? 'bg-blue-700' : 'bg-purple-700');
-
-        return (
-            <div
-                ref={clipRef}
-                className={`absolute top-1/2 -translate-y-1/2 h-5/6 ${bgColor} rounded-md overflow-hidden cursor-pointer border-2 ${isSelected ? 'border-yellow-400' : 'border-transparent'}`}
-                style={{ left: `${clip.start * zoom}px`, width: `${clip.duration * zoom}px` }}
-                onClick={(e) => onClipClick(e, clip, trackType)}
-            >
-                <div className="text-white text-xs truncate px-2 py-1 h-full w-full flex items-center">
-                    {clip.name}
-                </div>
-                 {isImage && (
-                    <div 
-                        onMouseDown={handleResizeMouseDown}
-                        className="absolute right-0 top-0 bottom-0 w-2 bg-yellow-400 cursor-ew-resize opacity-50 hover:opacity-100"
-                    />
-                )}
-            </div>
-        );
-    };
-
-    // -- Main Render --
-    return (
-        <div className="bg-gray-900 text-white h-screen w-screen flex flex-col p-4 font-sans">
-            <header className="mb-4">
-                <h1 className="text-2xl font-bold text-center">Web Video Creator</h1>
-            </header>
-            <div className="flex flex-grow min-h-0">
-                {/* Left Panel: Preview & Controls */}
-                <div className="w-2/3 flex flex-col pr-4">
-                    <div className="bg-black rounded-lg aspect-video w-full flex items-center justify-center">
-                        <canvas ref={previewRef} width="1280" height="720" className="w-full h-full rounded-lg"></canvas>
-                    </div>
-                    <div className="bg-gray-800 p-2 mt-4 rounded-lg flex items-center justify-center space-x-6">
-                        <button onClick={() => setIsPlaying(!isPlaying)} className="p-2 bg-blue-600 rounded-full hover:bg-blue-700 transition-colors">
-                            {isPlaying ? <Pause className="w-6 h-6" /> : <Play className="w-6 h-6" />}
-                        </button>
-                        <div className="text-lg font-mono">{formatTime(currentTime)} / {formatTime(duration)}</div>
-                    </div>
-                </div>
-
-                {/* Right Panel: Media Pool */}
-                <div className="w-1/3 flex flex-col min-w-[300px]">
-                    <MediaPoolPanel />
-                </div>
-            </div>
-            
-            {/* Bottom Panel: Timeline */}
-            <div className="h-1/3 mt-4 flex flex-col">
-                <TimelinePanel />
             </div>
         </div>
-    );
-}
+    </div>
+    
+    <div class="h-1/3 mt-4 flex flex-col flex-shrink-0">
+        <div class="bg-gray-800 p-4 rounded-lg h-full flex-grow flex flex-col overflow-hidden">
+            <div class="flex items-center justify-between mb-2">
+                <h3 class="text-lg font-bold text-white">Timeline</h3>
+                <div class="flex items-center space-x-4">
+                    <button id="split-btn" disabled class="flex items-center px-3 py-1 bg-yellow-500 text-white rounded-md disabled:bg-gray-600 disabled:cursor-not-allowed hover:bg-yellow-600 transition-colors">
+                        <i data-lucide="scissors" class="w-4 h-4 mr-2"></i>
+                        Split
+                    </button>
+                    <button id="delete-btn" disabled class="flex items-center px-3 py-1 bg-red-600 text-white rounded-md disabled:bg-gray-600 disabled:cursor-not-allowed hover:bg-red-700 transition-colors">
+                        <i data-lucide="trash-2" class="w-4 h-4 mr-2"></i>
+                        Delete
+                    </button>
+                    <div class="flex items-center">
+                        <span class="text-sm text-gray-300 mr-2">Zoom:</span>
+                        <input type="range" id="zoom-slider" min="10" max="200" value="50" class="w-32" />
+                    </div>
+                </div>
+            </div>
+            <div id="timeline-container" class="timeline-container w-full h-full bg-gray-900 rounded-md overflow-x-auto relative cursor-pointer">
+                <div id="timeline-content" class="relative h-full">
+                    <div id="playhead" class="absolute top-0 bottom-0 bg-red-500 w-0.5 z-20">
+                        <div class="absolute -top-2 -left-2 w-4 h-4 bg-red-500 rounded-full"></div>
+                    </div>
+                    
+                    <div class="h-full w-full flex flex-col">
+                        <div id="video-track" class="relative flex-1 border-b border-gray-700">
+                                <div class="absolute top-2 left-2 text-xs text-gray-400 bg-gray-800 px-2 py-1 rounded z-10">V1</div>
+                        </div>
+                        <div id="audio-track" class="relative flex-1">
+                                <div class="absolute top-2 left-2 text-xs text-gray-400 bg-gray-800 px-2 py-1 rounded z-10">A1</div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="script.js"></script>
+</body>
+</html>
