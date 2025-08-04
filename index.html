@@ -1,39 +1,30 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Web Video Creator</title>
-    <script src="https://cdn.tailwindcss.com"></script>
-    <script src="https://unpkg.com/lucide@latest"></script>
-    
-    <style>
-        /* Custom styles for better look and feel */
-        body {
-            font-family: 'Inter', sans-serif;
-            overscroll-behavior: none;
-        }
-        /* Custom scrollbar for timeline */
-        .timeline-container::-webkit-scrollbar {
-            height: 8px;
-        }
-        .timeline-container::-webkit-scrollbar-track {
-            background: #1f2937;
-        }
-        .timeline-container::-webkit-scrollbar-thumb {
-            background: #4b5563;
-            border-radius: 4px;
-        }
-        .timeline-container::-webkit-scrollbar-thumb:hover {
-            background: #6b7280;
-        }
-        /* Hide file input */
-        input[type="file"] {
-            display: none;
-        }
-        /* Draggable item styling */
-        .dragging {
-            opacity: 0.5;
+  <meta charset="UTF-8">
+  <title>Vertical Video Player</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+  <div class="video-container">
+    <video id="shortsVideo" controls autoplay loop muted playsinline>
+      <source src="videos/your_video.mp4" type="video/mp4">
+      Your browser does not support the video tag.
+    </video>
+  </div>
+
+  <script>
+    // Optional: JS to handle events or enhancements
+    const video = document.getElementById('shortsVideo');
+    video.addEventListener('loadeddata', () => {
+      console.log("🎥 Video loaded successfully.");
+    });
+  </script>
+
+</body>
+</html>
         }
         /* Timeline drop zone highlight */
         .drag-over {
