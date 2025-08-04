@@ -2,38 +2,51 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <title>Vertical Video Player</title>
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <link rel="stylesheet" href="style.css">
+  <title>Upload & Play Video</title>
+  <style>
+    body {
+      font-family: sans-serif;
+      text-align: center;
+      background: #111;
+      color: white;
+      padding: 40px;
+    }
+    input[type="file"] {
+      margin: 20px;
+    }
+    video {
+      width: 100%;
+      max-width: 360px;
+      aspect-ratio: 9/16;
+      margin-top: 20px;
+      border-radius: 12px;
+      box-shadow: 0 0 20px rgba(255,255,255,0.1);
+    }
+  </style>
 </head>
 <body>
 
-  <div class="video-container">
-    <video id="shortsVideo" controls autoplay loop muted playsinline>
-      <source src="videos/your_video.mp4" type="video/mp4">
-      Your browser does not support the video tag.
-    </video>
-  </div>
+  <h2>📤 Upload a Video to Play</h2>
+  <input type="file" accept="video/*" id="uploadVideo">
+  <video id="videoPlayer" controls autoplay muted playsinline loop></video>
 
   <script>
-    // Optional: JS to handle events or enhancements
-    const video = document.getElementById('shortsVideo');
-    video.addEventListener('loadeddata', () => {
-      console.log("🎥 Video loaded successfully.");
+    const input = document.getElementById('uploadVideo');
+    const video = document.getElementById('videoPlayer');
+
+    input.addEventListener('change', function () {
+      const file = this.files[0];
+      if (file) {
+        const url = URL.createObjectURL(file);
+        video.src = url;
+        video.load();
+        video.play();
+      }
     });
   </script>
 
 </body>
 </html>
-        }
-        /* Timeline drop zone highlight */
-        .drag-over {
-            border: 2px dashed #34d399; /* Green-400 */
-        }
-    </style>
-    <link rel="preconnect" href="https://fonts.googleapis.com">
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;700&display=swap" rel="stylesheet">
 </head>
 <body class="bg-gray-900 text-white h-screen w-screen flex flex-col p-4 font-sans overflow-hidden">
 
