@@ -1,39 +1,87 @@
 <!DOCTYPE html>
-<html lang="en">
+<html>
 <head>
   <meta charset="UTF-8">
-  <title>Portrait Video Preview</title>
+  <title>Pad & Download Portrait Video</title>
+  <script src="https://cdn.jsdelivr.net/npm/@ffmpeg/ffmpeg@0.12.2/dist/ffmpeg.min.js"></script>
   <style>
     body {
-      background-color: #000;
-      font-family: sans-serif;
+      background: #111;
       color: white;
+      font-family: sans-serif;
       text-align: center;
-      padding: 40px;
+      padding: 2rem;
     }
-
-    .portrait-wrapper {
-      width: 360px; /* typical Shorts width */
-      height: 640px; /* typical Shorts height */
-      background-color: #001f3f; /* dark navy blue */
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      margin: 0 auto;
-      border-radius: 16px;
-      box-shadow: 0 0 30px rgba(0,0,0,0.3);
-      overflow: hidden;
-    }
-
     video {
-      max-width: 100%;
-      max-height: 100%;
-      object-fit: contain;
+      width: 360px;
+      height: 640px;
+      background: black;
+      margin-top: 20px;
+      border-radius: 12px;
     }
+    #downloadBtn {
+      display: none;
+      margin-top: 20px;
+    }
+  </style>
+</head>
+<body>
+  <h2>🎞️ Upload & Pad to 9:16 (Black)</h2>
+  <input type="file" id="uploader" accept="video/*" />
+  <br>
+  <button id="processBtn">⬛ Pad to 9:16 & Download</button>
+  <br>
+  <video id="preview" controls muted autoplay playsinline loop></video>
+  <br>
+  <a id="downloadBtn" class="button" download="padded_video.mp4">⬇️ Download Padded Video</a>
 
-    input[type="file"] {
-      margin-bottom: 20px;
-    }
+  <script>
+    const { createFFmpeg, fetchFile } = FFmpeg;
+    const ffmpeg = createFFmpeg({ log: true });
+    const input = document.getElementById('uploader');
+    const video = document.getElementById('preview');
+    const processBtn = document.getElementById('processBtn');
+    const downloadBtn = document.getElementById('downloadBtn');
+    let inputFile;
+
+    input.addEventListener('change', async () => {
+      inputFile = input.files[0];
+      const url = URL.createObjectURL(inputFile);
+      video.src = url;
+    });
+
+    processBtn.addEventListener('click', async () => {
+      if (!inputFile) {
+        alert('Please upload a video first.');
+        return;
+      }
+
+      processBtn.innerText = '⏳ Processing...';
+      processBtn.disabled = true;
+
+      if (!ffmpeg.isLoaded()) await ffmpeg.load();
+
+      ffmpeg.FS('writeFile', 'input.mp4', await fetchFile(inputFile));
+
+      // Pad to 9:16 (1080x1920) keeping original width
+      await ffmpeg.run(
+        '-i', 'input.mp4',
+        '-vf', 'pad=ih*9/16:ih:(ow-iw)/2:(oh-ih)/2:black',
+        '-c:a', 'copy',
+        'output.mp4'
+      );
+
+      const data = ffmpeg.FS('readFile', 'output.mp4');
+      const blob = new Blob([data.buffer], { type: 'video/mp4' });
+      const url = URL.createObjectURL(blob);
+
+      downloadBtn.href = url;
+      downloadBtn.style.display = 'inline-block';
+      processBtn.innerText = '✅ Done! Download below';
+    });
+  </script>
+</body>
+</html>
   </style>
 </head>
 <body>
