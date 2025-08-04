@@ -2,38 +2,66 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <title>Upload & Play Video</title>
+  <title>Portrait Video Preview</title>
   <style>
     body {
+      background-color: #000;
       font-family: sans-serif;
-      text-align: center;
-      background: #111;
       color: white;
+      text-align: center;
       padding: 40px;
     }
-    input[type="file"] {
-      margin: 20px;
+
+    .portrait-wrapper {
+      width: 360px; /* typical Shorts width */
+      height: 640px; /* typical Shorts height */
+      background-color: #001f3f; /* dark navy blue */
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      margin: 0 auto;
+      border-radius: 16px;
+      box-shadow: 0 0 30px rgba(0,0,0,0.3);
+      overflow: hidden;
     }
+
     video {
-      width: 100%;
-      max-width: 360px;
-      aspect-ratio: 9/16;
-      margin-top: 20px;
-      border-radius: 12px;
-      box-shadow: 0 0 20px rgba(255,255,255,0.1);
+      max-width: 100%;
+      max-height: 100%;
+      object-fit: contain;
+    }
+
+    input[type="file"] {
+      margin-bottom: 20px;
     }
   </style>
 </head>
 <body>
 
-  <h2>📤 Upload a Video to Play</h2>
-  <input type="file" accept="video/*" id="uploadVideo">
-  <video id="videoPlayer" controls autoplay muted playsinline loop></video>
+  <h2>Upload a Video for Portrait Preview</h2>
+  <input type="file" id="uploadVideo" accept="video/*">
+
+  <div class="portrait-wrapper">
+    <video id="videoPlayer" controls autoplay muted loop playsinline></video>
+  </div>
 
   <script>
     const input = document.getElementById('uploadVideo');
     const video = document.getElementById('videoPlayer');
 
+    input.addEventListener('change', () => {
+      const file = input.files[0];
+      if (file) {
+        const url = URL.createObjectURL(file);
+        video.src = url;
+        video.load();
+        video.play();
+      }
+    });
+  </script>
+
+</body>
+</html>
     input.addEventListener('change', function () {
       const file = this.files[0];
       if (file) {
